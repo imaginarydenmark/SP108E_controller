@@ -6,7 +6,8 @@ use JJG\Ping as Ping;
 
 define('USER_COLOR_FORM',0); //enable HTML color picker form
 define('USER_SPEED_FORM',0); //enable HTML speed slider form
-define('CONTROLLER_IP', "192.168.137.181"); // put your controller IP here
+//define('CONTROLLER_IP', "192.168.137.181"); // put your controller IP here
+$CONTROLLER_IP = "0.0.0.0"; // must have a default value 
 define("CONTROLLER_PORT", 8189); // Don't change that
 
 $mono_animations = [
@@ -80,8 +81,9 @@ function transmit_data(
 		$expect_response, // set to true if you expect a response
 		$response_length // how long the response is
 	 ){
+	global $CONTROLLER_IP;
 	// open the connection
-	$fp = fsockopen(CONTROLLER_IP, CONTROLLER_PORT, $errno, $errstr, 30);
+	$fp = fsockopen($CONTROLLER_IP, CONTROLLER_PORT, $errno, $errstr, 30);
 	if (!$fp) {
 		   echo "$errstr ($errno)<br />\n";
 	} else {
@@ -161,12 +163,12 @@ function change_brightness($brightness = 255){
 
 function get_name(){
     $result = send_data("38 000000 77 83", true, 18);
-    echo $result."<br>";
+    echo $result;
 }
 
 function get_device_raw_settings(){
     $result = send_data("38 000000 10 83", true, 17);
-    return bin2hex($result)."<br>";
+    return bin2hex($result);
 }
 
 function get_device_settings(){
@@ -184,9 +186,6 @@ function get_device_settings(){
 	$chip_type = array_search(substr($raw_settings, 26, 2), $chips_types);
 	$color_order = array_search( substr($raw_settings, 10, 2), $colors_orders);
 	$turned_on = (hexdec(substr($raw_settings, 2, 2)) ? 'On': 'Off');
-	$current_color  = "<span style='color: #"; 
-	$current_color .= substr($raw_settings, 20, 6); 
-	$current_color .= ";'>" . substr($raw_settings, 20, 6) . "</span>"; 
 	
 
 	$settings = [
@@ -197,11 +196,20 @@ function get_device_settings(){
 		'color_order' => $color_order,
 		'leds_per_segment ' => hexdec(substr($raw_settings, 12, 4)),
 		'segments' => hexdec(substr($raw_settings, 16, 4)),
-		'current_color' => $current_color,
+		'current_color' => substr($raw_settings, 20, 6),
 		'chip_type' => $chip_type ,
 		'recorded_patterns' => hexdec(substr($raw_settings, 28, 2)),
 		'white_channel_brightness' => hexdec(substr($raw_settings, 30, 2))
 	];
+	return $settings;
+}
+
+function get_device_settings_html(){
+	$settings = get_device_settings();
+
+	$current_color  = "<span style='color: #"; 
+	$current_color .= $settings['current_color'];
+	$current_color .= ";'>#" . $settings['current_color'] . "</span>"; 
 
 	$pretty_settings= "";
 	foreach ($settings as $key => $value) {
@@ -338,6 +346,18 @@ function find_device(){
 
 }
 
+
+function get_option($optionArray, $optionOptions, $allowFalse = FALSE) {
+	foreach ($optionOptions as $value)
+		if (array_key_exists($value, $optionArray)) {
+			if ($allowFalse && $optionArray[$value] === False) {
+				return TRUE;
+			}
+			return $optionArray[$value];
+		}
+	return FALSE;
+ }
+
 // change_color('ffff00');
 // change_mono_color_animation($mono_animations['stack']);
 // change_speed(150);
@@ -354,63 +374,63 @@ function find_device(){
 // echo get_device_raw_settings();
 // echo get_device_settings();
 // find_device();
+// Script example.php
+$shortopts  = "x:i:c:b:p:a:sm";
 
-?>
+$longopts  = array(
+	"mixed:",
+    "ip:",
+    "color:",
+    "brightness:",
+    "animation:",
+	"settings",
+	"multicolor",
+	"power:"
+);
+$rest_index = null;
+$options = getopt($shortopts, $longopts, $rest_index);
+$pos_args = array_slice($argv, $rest_index);
+
+$settings = "";
+
+if ($ip = get_option($options, ["i", "ip"])) {
+	$CONTROLLER_IP = $ip;
+} else {
+	die("Must specify an ip host address");
+}
+$settings = get_device_settings();
+
+if (get_option($options, ["s", "settings"], True)) {
+	print json_encode($settings);
+}
+
+if (get_option($options, ["m", "multicolor"], True)) {
+	enable_multicolor_animation_auto_mode();
+}
 
 
-<!DOCTYPE html>
-	<html>
-	<head>
-		<title></title>
-		<style type="text/css">
-			.color_selector, .speed_selector{
-				margin-left: 250px
-			}	
-			input{
-				width: 300px;
-				height: 150px;
-				font-size: 25px;
-				vertical-align: top;
-			}
+if ($power = get_option($options, ["p", "power"])) {
+	print "change power: $power";
+	if (strtolower($settings["turned_on"]) != strtolower($power)) {
+		toggle_off_on();
+		print ("Toggled, was ".$settings["turned_on"]." should be $power");
+	}
+}
 
-			span{font-size: 25px;}
-		</style>
-	</head>
-	<body>
-	<?php 
-		if(USER_COLOR_FORM){
-			echo '<div class="color_selector">
-			<form action="" method="get">
-				<input type="color" name="color">
-				<input type="submit" name="do" value="do">
-			</form>
-			</div>';
-		}
-		if(USER_SPEED_FORM){
-			echo '
-			<div class="speed_selector">
-				<form action="" method="get">
-					<input type="range" name="speed" min="0" max="255" id="speed"> 
-					<span>Speed: <span id="speed_val"></span></span>
-					<br>
-					<input type="submit" name="do" value="do">
-				</form>
-			</div>';
-		}
-	?>
+if ($mix = get_option($options, ["x", "mixed"])) {
+	change_mixed_colors_animation($mix);
+}
 
-	<script type="text/javascript">
-		<?php 
-		if(USER_SPEED_FORM){
-			echo 'var speed = document.querySelector("#speed");
-			speed.addEventListener("click", function(){
-			var speed_val = speed.value;
-			var speed_span = document.querySelector("#speed_val");
-			speed_span.innerText=speed_val;
-			});';
-		}
-		?>
+if ($color = get_option($options, ["c", "color"])) {
+	change_color($color);
+}
+if ($brightness = get_option($options, ["b", "brightness"])) {
+	change_brightness($brightness);
+}
+if ($animation = get_option($options, ["a", "animation"])) {
+	if (array_key_exists("mono_animations", $animation)) {
+		change_mono_color_animation($mono_animations[$animation]);
+	}
+}
 
-	</script>
-	</body>
-</html>
+echo "\n";
